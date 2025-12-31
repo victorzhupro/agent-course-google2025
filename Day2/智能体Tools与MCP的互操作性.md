@@ -109,6 +109,10 @@
 
 智能体工具应用的一个示例可能包括调用API获取用户位置的天气预报，并以用户首选的单位呈现信息。这是一个简单的问题，但要正确回答，模型需要关于用户当前位置和当前天气的信息——这些数据点都不包含在模型的训练数据中。模型还需要能够在温度单位之间进行转换；虽然基础模型在数学能力方面有所改进，但这并不是它们的强项，数学运算是另一个通常最好调用外部函数的领域。
 
+![1767152709753](image/智能体Tools与MCP的互操作性/1767152709753.png)
+
+Figure 1: Weather agent tool-calling example
+
 #### 工具类型
 
 在AI系统中，工具的定义就像非AI程序中的函数一样。工具定义声明了模型和工具之间的契约。至少，这包括一个清晰的名称、参数和一个解释其目的和如何使用它的自然语言描述。工具有几种不同的类型；这里描述的三种主要类型是函数工具、内置工具和智能体工具。
@@ -124,18 +128,19 @@ def set_light_values(
     brightness: int,
     color_temp: str,
     context: ToolContext) -> dict[str, int | str]:
-    """此工具设置用户当前位置房间灯的亮度和色温。
-  
-    参数:
-        brightness: 光照级别，从0到100。零是关闭，100是最大亮度
-        color_temp: 灯具的色温，可以是`daylight`、`cool`或`warm`。
-        context: 用于检索用户位置的ToolContext对象。
-  
-    返回:
-        包含设置的亮度和色温的字典。
+    """This tool sets the brightness and color temperature of the room lights
+    in the user's current location.
+    Args:
+        brightness: Light level from 0 to 100. Zero is off and 100 is full
+        brightness
+        color_temp: Color temperature of the light fixture, which can be
+        `daylight`, `cool` or `warm`.
+        context: A ToolContext object used to retrieve the user's location.
+    Returns:
+        A dictionary containing the set brightness and color temperature.
     """
     user_room_id = context.state['room_id']
-    # 这是一个虚构的房间照明控制API
+    # This is an imaginary room lighting control API
     room = light_system.get_room(user_room_id)
     response = room.set_lights(brightness, color_temp)
     return {"tool_response": response}
@@ -143,7 +148,7 @@ def set_light_values(
 
 ##### 1.3.2 内置工具
 
-一些基础模型提供利用内置工具的能力，其中工具定义被隐式地或在模型服务的幕后提供给模型。例如，Google的Gemini API提供了几个内置工具：Google搜索接地、代码执行、URL上下文和计算机使用。
+一些基础模型提供利用内置工具的能力，其中工具定义被隐式地或在模型服务的幕后提供给模型。例如，Google的Gemini API提供了几个内置工具：Google搜索、代码执行、URL上下文和计算机使用。
 
 ```python
 from google import genai
@@ -156,6 +161,7 @@ from google.genai.types import (
 
 client = genai.Client(http_options=HttpOptions(api_version="v1")
 model_id = "gemini-2.5-flash"
+
 url_context_tool = Tool(
     url_context = UrlContext
 )
@@ -165,17 +171,23 @@ url2 = "https://www.allrecipes.com/recipe/70679/simple-whole-roasted-chicken/"
 
 response = client.models.generate_content(
     model=model_id,
-    contents=(f"比较来自{url1}和{url2}食谱的成分和烹饪时间"),
+    contents=("Compare the ingredients and cooking times from "
+    f"the recipes at {url1} and {url2}"),
     config=GenerateContentConfig(
         tools=[url_context_tool],
         response_modalities=["TEXT"],
     )
 )
+
+for each in response.candidates[0].content.parts:
+    print(each.text)
+# For verification, you can inspect the metadata to see which URLs the model retrieved
+print(response.candidates[0].url_context_metadata)
 ```
 
 ##### 1.3.3 智能体工具
 
-智能体也可以作为工具被调用。这防止了用户对话的完全移交，允许主要智能体保持对交互的控制并根据需要处理子智能体的输入和输出。在ADK中，这通过使用SDK中的AgentTool类来完成。谷歌的A2A协议（在"第五天：从原型到生产"中讨论）甚至允许你将远程智能体作为工具使用。
+智能体也可以作为工具被调用。这防止了用户对话的完全移交，允许主智能体保持对交互的控制并根据需要处理子智能体的输入和输出。在ADK中，这通过使用SDK中的AgentTool类来完成。谷歌的A2A协议（在"第五天：从原型到生产"中讨论）甚至允许你将远程智能体作为工具使用。
 
 ```python
 from google.adk.agents import LlmAgent
@@ -184,15 +196,18 @@ from google.adk.tools import AgentTool
 tool_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="capital_agent",
-    description="返回任何国家或州的首都城市"
-    instruction="""如果用户给出国家或州的名称（例如田纳西州或新南威尔士州），回答该国家或州的首都城市名称。否则，告诉用户您无法帮助他们。"""
+    description="Returns the capital city for any country or state"
+    instruction="""If the user gives you the name of a country or a state (e.g.
+    Tennessee or New South Wales), answer with the name of the capital city of that
+    country or state. Otherwise, tell the user you are not able to help them."""
 )
 
 user_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="user_advice_agent",
-    description="回答用户问题并提供建议",
-    instruction="""使用您可用的工具回答用户的问题""",
+    description="Answers user questions and gives advice",
+    instruction="""Use the tools you have available to answer the
+    user's questions""",
     tools=[AgentTool(agent=capital_agent)]
 )
 ```
@@ -222,7 +237,7 @@ user_agent = LlmAgent(
 
 工具文档（名称、描述和属性）都作为请求上下文的一部分传递给模型，因此所有这些都是帮助模型正确使用工具的重要信息。
 
-- **使用清晰的名称**：工具的名称应该清晰描述、人类可读且具体，以帮助模型决定使用哪个工具。例如，create_critical_bug_in_jira_with_priority比update_jira更清晰。这对于治理也很重要；如果工具调用被记录，拥有清晰的名称将使审计日志更具信息性。
+- **使用清晰的名称**：工具的名称应该清晰描述、人类可读且具体，以帮助模型决定使用哪个工具。例如，`create_critical_bug_in_jira_with_priority`比 `update_jira`更清晰。这对于治理也很重要；如果工具调用被记录，拥有清晰的名称将使审计日志更具信息性。
 - **描述所有输入和输出参数**：应清楚描述工具的所有输入，包括必需的类型和工具将如何使用该参数。
 - **简化参数列表**：长参数列表可能会混淆模型；保持参数列表简短，并给参数清晰的名称。
 - **澄清工具描述**：提供关于输入和输出参数、工具目的以及有效调用工具所需的任何其他细节的清晰、详细的描述。避免使用缩写或技术术语；专注于使用简单术语进行清晰解释。
@@ -234,27 +249,26 @@ user_agent = LlmAgent(
 ```python
 def get_product_information(product_id: str) -> dict:
     """
-    根据唯一产品ID检索产品的全面信息。
-  
-    参数:
-        product_id: 产品的唯一标识符。
-  
-    返回:
-        包含产品详情的字典。预期键包括：
-        'product_name': 产品名称。
-        'brand': 产品的品牌名称
-        'description': 描述产品的文本段落。
-        'category': 产品的类别。
-        'status': 产品的当前状态（例如，'active'、'inactive'、'suspended'）。
-  
-    示例返回值:
-        {
-            'product_name': 'Astro Zoom Kid's Trainers',
-            'brand': 'Cymbal Athletic Shoes',
-            'description': '...',
-            'category': 'Children's Shoes',
-            'status': 'active'
-        }
+    Retrieves comprehensive information about a product based on the unique
+    product ID.
+    Args:
+        product_id: The unique identifier for the product.
+    Returns:
+        A dictionary containing product details. Expected keys include:
+        'product_name': The name of the product.
+        'brand': The brand name of the product
+        'description': A paragraph of text describing the product.
+        'category': The category of the product.
+        'status': The current status of the product (e.g., 'active',
+        'inactive', 'suspended').
+    Example return value:
+    {
+        'product_name': 'Astro Zoom Kid's Trainers',
+        'brand': 'Cymbal Athletic Shoes',
+        'description': '...',
+        'category': 'Children's Shoes',
+        'status': 'active'
+    }
     """
 ```
 
@@ -262,25 +276,25 @@ def get_product_information(product_id: str) -> dict:
 
 ```python
 def fetchpd(pid):
-    """
-    检索产品数据
-  
-    参数:
-        pid: id
-  
-    返回:
-        数据字典
-    """
+     """
+       Retrieves product data
+ 
+       Args:
+ 	  pid: id
+
+       Returns:
+ 	  dict of data
+     """
 ```
 
 #### 1.4.2 描述操作，而非实现
 
 假设每个工具都有良好的文档记录，模型的指令应该描述操作，而不是特定的工具。这对于消除工具使用说明（可能会混淆LLM）之间冲突的任何可能性都很重要。在可用工具可以动态更改的情况下（如MCP），这更加相关。
 
-- **描述做什么，而不是如何做**：解释模型需要做什么，而不是如何做。例如，说"创建一个错误来描述问题"，而不是"使用create_bug工具"。
+- **描述做什么，而不是如何做**：解释模型需要做什么，而不是如何做。例如，说"创建一个错误来描述问题"，而不是"使用 `create_bug`工具"。
 - **不要重复说明**：不要重复或重述工具说明或文档。这可能会混淆模型，并在系统说明和工具实现之间创建额外的依赖关系。
 - **不要规定工作流**：描述目标，并允许模型自主使用工具的范围，而不是规定特定的操作序列。
-- **解释工具交互**：如果一个工具有可能影响不同工具的副作用，请记录这一点。例如，fetch_web_page工具可能会将检索到的网页存储在文件中；记录这一点以便智能体知道如何访问数据。
+- **解释工具交互**：如果一个工具有可能影响不同工具的副作用，请记录这一点。例如，`fetch_web_page`工具可能会将检索到的网页存储在文件中；记录这一点以便智能体知道如何访问数据。
 
 #### 1.4.3 发布任务，而非API调用
 
@@ -326,6 +340,10 @@ Anthropic于2024年11月推出了模型上下文协议（MCP），作为开始�
 - **MCP客户端**：嵌入在主机内的软件组件，负责维护与服务器的连接。客户端的职责是发出命令、接收响应以及管理与其MCP服务器的通信会话生命周期。
 - **MCP服务器**：提供服务器开发人员希望向AI应用程序提供的一组功能的程序，通常充当外部工具、数据源或API的适配器或代理。主要职责是公布可用工具（工具发现）、接收和执行命令以及格式化和返回结果。在企业环境中，服务器还负责安全性、可扩展性和治理。
 
+![1767161537591](image/智能体Tools与MCP的互操作性/1767161537591.png)
+
+Figure 2: MCP Host, Client and Server in an Agentic Application
+
 这种架构模型旨在支持竞争性和创新性AI工具生态系统的开发。AI智能体开发人员应该能够专注于他们的核心竞争力——推理和用户体验——而第三方开发人员可以为任何可想象的工具或API创建专门的MCP服务器。
 
 ### 2.3 通信层：JSON-RPC、传输和消息类型
@@ -345,6 +363,10 @@ MCP客户端和服务器之间的所有通信都建立在标准化的技术基�
 
 - **stdio（标准输入/输出）**：用于在MCP服务器作为主机应用程序的子进程运行的本地环境中进行快速直接通信；当工具需要访问本地资源（如用户文件系统）时使用。
 - **Streamable HTTP**：推荐的远程客户端-服务器协议。它支持SSE流式响应，但也允许无状态服务器，并且可以在不需要SSE的普通HTTP服务器中实现。
+
+![1767161621658](image/智能体Tools与MCP的互操作性/1767161621658.png)
+
+Figure 3: MCP Transport Protocols
 
 ### 2.4 关键原语：工具及其他
 
@@ -367,7 +389,7 @@ MCP客户端和服务器之间的所有通信都建立在标准化的技术基�
 
 #### 2.4.1 工具定义
 
-MCP中的工具实体是服务器向客户端描述其可用函数的标准化方式。一些示例可能是read_file、get_weather、execute_sql或create_ticket。MCP服务器公布其可用工具列表，包括描述和参数模式，供智能体发现。
+MCP中的工具实体是服务器向客户端描述其可用函数的标准化方式。一些示例可能是 `read_file`、`get_weather`、`execute_sql`或 `create_ticket`。MCP服务器公布其可用工具列表，包括描述和参数模式，供智能体发现。
 
 工具定义必须符合具有以下字段的JSON模式：
 
@@ -397,18 +419,20 @@ annotations字段被声明为可选的，应保持这种方式。规范中定义
 ```json
 {
     "name": "get_stock_price",
-    "title": "股票价格检索工具",
-    "description": "获取特定股票代码的股票价格。如果提供了'date'，它将检索该日期的最后价格或收盘价。否则，它将检索最新价格。",
+    "title": "Stock Price Retrieval Tool",
+    "description": "Get stock price for a specific ticker symbol. If 'date' is
+    provided, it will retrieve the last price or closing price for that date.
+    Otherwise it will retrieve the latest price.",
     "inputSchema": {
         "type": "object",
         "properties": {
             "symbol": {
                 "type": "string",
-                "description": "股票代码符号"
+                "description": "Stock ticker symbol"
             },
             "date": {
                 "type": "string",
-                "description": "要检索的日期（格式为YYYY-MM-DD）"
+                "description": "Date to retrieve (in YYYY-MM-DD format)"
             }
         },
         "required": ["symbol"]
@@ -418,11 +442,11 @@ annotations字段被声明为可选的，应保持这种方式。规范中定义
         "properties": {
             "price": {
                 "type": "number",
-                "description": "股票价格"
+                "description": "Stock price"
             },
             "date": {
                 "type": "string",
-                "description": "股票价格日期"
+                "description": "Stock price date"
             }
         },
         "required": ["price", "date"]
@@ -459,7 +483,9 @@ MCP还定义了两种标准错误报告机制。服务器可以为未知工具�
     "id": 3,
     "error": {
         "code": -32602,
-        "message": "未知工具：invalid_tool_name。可能是拼写错误，或者该工具可能不存在于此服务器上。检查工具名称，如有必要，请求更新的工具列表。"
+        "message": "Unknown tool: invalid_tool_name. It may be misspelled, or the tool
+        may not exist on this server. Check the tool name and if necessary request an
+        updated list of tools."
     }
 }
 ```
@@ -474,7 +500,8 @@ MCP还定义了两种标准错误报告机制。服务器可以为未知工具�
         "content": [
             {
                 "type": "text",
-                "text": "获取天气数据失败：API速率限制超出。等待15秒后再次调用此工具。"
+                "text": "Failed to fetch weather data: API rate limit exceeded. Wait 15
+                seconds before calling this tool again."
             }
         ],
         "isError": true

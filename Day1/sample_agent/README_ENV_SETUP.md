@@ -73,3 +73,4 @@ print(f"DEEPSEEK_API_KEY: {api_key[:10]}..." if api_key else "DEEPSEEK_API_KEY n
 - 不要将 .env 文件提交到版本控制系统
 - 定期更新 API key 以确保安全性
 
+
